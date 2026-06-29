@@ -10,6 +10,9 @@ using OpenTelemetry;
 using OpenTelemetry.Context.Propagation;
 using Polly.Retry;
 
+/// <summary>
+/// RabbitMQ 事件总线实现，基于 RabbitMQ 消息中间件发布和订阅集成事件
+/// </summary>
 public sealed class RabbitMQEventBus(
     ILogger<RabbitMQEventBus> logger,
     IServiceProvider serviceProvider,
@@ -17,17 +20,43 @@ public sealed class RabbitMQEventBus(
     IOptions<EventBusSubscriptionInfo> subscriptionOptions,
     RabbitMQTelemetry rabbitMQTelemetry) : IEventBus, IDisposable, IHostedService
 {
+    /// <summary>
+    /// RabbitMQ 交换器名称
+    /// </summary>
     private const string ExchangeName = "eshop_event_bus";
 
+    /// <summary>
+    /// 弹性管道，用于实现发布消息时的自动重试
+    /// </summary>
     private readonly ResiliencePipeline _pipeline = CreateResiliencePipeline(options.Value.RetryCount);
+
+    /// <summary>
+    /// 传播器，用于分布式追踪上下文传播
+    /// </summary>
     private readonly TextMapPropagator _propagator = rabbitMQTelemetry.Propagator;
+
+    /// <summary>
+    /// Activity 源，用于创建分布式追踪活动
+    /// </summary>
     private readonly ActivitySource _activitySource = rabbitMQTelemetry.ActivitySource;
+
+    /// <summary>
+    /// 队列名称，从配置选项中获取
+    /// </summary>
     private readonly string _queueName = options.Value.SubscriptionClientName;
+
+    /// <summary>
+    /// 订阅信息，包含事件类型映射和 JSON 序列化配置
+    /// </summary>
     private readonly EventBusSubscriptionInfo _subscriptionInfo = subscriptionOptions.Value;
+
     private IConnection _rabbitMQConnection;
 
     private IChannel _consumerChannel;
 
+    /// <summary>
+    /// 发布集成事件到 RabbitMQ
+    /// </summary>
     public async Task PublishAsync(IntegrationEvent @event)
     {
         var routingKey = @event.GetType().Name;
@@ -50,7 +79,7 @@ public sealed class RabbitMQEventBus(
 
         var body = SerializeMessage(@event);
 
-        // Start an activity with a name following the semantic convention of the OpenTelemetry messaging specification.
+        // 遵循 OpenTelemetry 消息规范创建活动名称
         // https://github.com/open-telemetry/semantic-conventions/blob/main/docs/messaging/messaging-spans.md
         var activityName = $"{routingKey} publish";
 
@@ -58,9 +87,8 @@ public sealed class RabbitMQEventBus(
         {
             using var activity = _activitySource.StartActivity(activityName, ActivityKind.Client);
 
-            // Depending on Sampling (and whether a listener is registered or not), the activity above may not be created.
-            // If it is created, then propagate its context. If it is not created, the propagate the Current context, if any.
-
+            // 根据采样策略，Activity 可能不会被创建
+            // 如果创建了，则传播其上下文；否则传播当前上下文
             ActivityContext contextToInject = default;
 
             if (activity != null)
@@ -77,6 +105,7 @@ public sealed class RabbitMQEventBus(
                 DeliveryMode = DeliveryModes.Persistent
             };
 
+            // 将追踪上下文注入到 RabbitMQ 消息头中
             static void InjectTraceContextIntoBasicProperties(IBasicProperties props, string key, string value)
             {
                 props.Headers ??= new Dictionary<string, object>();
@@ -110,11 +139,14 @@ public sealed class RabbitMQEventBus(
         });
     }
 
+    /// <summary>
+    /// 设置 Activity 的上下文标签，遵循 OpenTelemetry 消息规范
+    /// </summary>
     private static void SetActivityContext(Activity activity, string routingKey, string operation)
     {
         if (activity is not null)
         {
-            // These tags are added demonstrating the semantic conventions of the OpenTelemetry messaging specification
+            // 添加 OpenTelemetry 消息规范中定义的语义标签
             // https://github.com/open-telemetry/semantic-conventions/blob/main/docs/messaging/messaging-spans.md
             activity.SetTag("messaging.system", "rabbitmq");
             activity.SetTag("messaging.destination_kind", "queue");
@@ -124,13 +156,20 @@ public sealed class RabbitMQEventBus(
         }
     }
 
+    /// <summary>
+    /// 释放消费者通道资源
+    /// </summary>
     public void Dispose()
     {
         _consumerChannel?.Dispose();
     }
 
+    /// <summary>
+    /// 消息接收回调处理
+    /// </summary>
     private async Task OnMessageReceived(object sender, BasicDeliverEventArgs eventArgs)
     {
+        // 从消息头中提取追踪上下文
         static IEnumerable<string> ExtractTraceContextFromBasicProperties(IReadOnlyBasicProperties props, string key)
         {
             if (props.Headers.TryGetValue(key, out var value))
@@ -141,11 +180,11 @@ public sealed class RabbitMQEventBus(
             return [];
         }
 
-        // Extract the PropagationContext of the upstream parent from the message headers.
+        // 从消息头中提取上游父级的 PropagationContext
         var parentContext = _propagator.Extract(default, eventArgs.BasicProperties, ExtractTraceContextFromBasicProperties);
         Baggage.Current = parentContext.Baggage;
 
-        // Start an activity with a name following the semantic convention of the OpenTelemetry messaging specification.
+        // 遵循 OpenTelemetry 消息规范创建活动名称
         // https://github.com/open-telemetry/semantic-conventions/blob/main/docs/messaging/messaging-spans.md
         var activityName = $"{eventArgs.RoutingKey} receive";
 
@@ -174,12 +213,15 @@ public sealed class RabbitMQEventBus(
             activity.SetExceptionTags(ex);
         }
 
-        // Even on exception we take the message off the queue.
-        // in a REAL WORLD app this should be handled with a Dead Letter Exchange (DLX). 
-        // For more information see: https://www.rabbitmq.com/dlx.html
+        // 即使异常也从队列中移除消息
+        // 在生产环境中应使用死信交换（DLX）来处理
+        // 更多信息：https://www.rabbitmq.com/dlx.html
         await _consumerChannel.BasicAckAsync(eventArgs.DeliveryTag, multiple: false);
     }
 
+    /// <summary>
+    /// 处理已接收的事件消息
+    /// </summary>
     private async Task ProcessEvent(string eventName, string message)
     {
         if (logger.IsEnabled(LogLevel.Trace))
@@ -195,12 +237,11 @@ public sealed class RabbitMQEventBus(
             return;
         }
 
-        // Deserialize the event
+        // 反序列化事件
         var integrationEvent = DeserializeMessage(message, eventType);
-        
-        // REVIEW: This could be done in parallel
 
-        // Get all the handlers using the event type as the key
+        // 可考虑并行处理各处理器
+        // 获取所有使用该事件类型作为键的处理器
         foreach (var handler in scope.ServiceProvider.GetKeyedServices<IIntegrationEventHandler>(eventType))
         {
             await handler.Handle(integrationEvent);
@@ -210,6 +251,9 @@ public sealed class RabbitMQEventBus(
     [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
         Justification = "The 'JsonSerializer.IsReflectionEnabledByDefault' feature switch, which is set to false by default for trimmed .NET apps, ensures the JsonSerializer doesn't use Reflection.")]
     [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode", Justification = "See above.")]
+    /// <summary>
+    /// 将 JSON 消息反序列化为集成事件
+    /// </summary>
     private IntegrationEvent DeserializeMessage(string message, Type eventType)
     {
         return JsonSerializer.Deserialize(message, eventType, _subscriptionInfo.JsonSerializerOptions) as IntegrationEvent;
@@ -218,14 +262,20 @@ public sealed class RabbitMQEventBus(
     [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
         Justification = "The 'JsonSerializer.IsReflectionEnabledByDefault' feature switch, which is set to false by default for trimmed .NET apps, ensures the JsonSerializer doesn't use Reflection.")]
     [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode", Justification = "See above.")]
+    /// <summary>
+    /// 将集成事件序列化为 UTF-8 字节数组
+    /// </summary>
     private byte[] SerializeMessage(IntegrationEvent @event)
     {
         return JsonSerializer.SerializeToUtf8Bytes(@event, @event.GetType(), _subscriptionInfo.JsonSerializerOptions);
     }
 
+    /// <summary>
+    /// 启动事件总线，在后台线程中建立 RabbitMQ 连接并开始消费消息
+    /// </summary>
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Messaging is async so we don't need to wait for it to complete.
+        // 消息消费是异步的，无需等待完成
         _ = Task.Factory.StartNew(async () =>
         {
             try
@@ -245,6 +295,7 @@ public sealed class RabbitMQEventBus(
 
                 _consumerChannel = await _rabbitMQConnection.CreateChannelAsync();
 
+                // 订阅回调异常事件
                 _consumerChannel.CallbackExceptionAsync += (sender, ea) =>
                 {
                     logger.LogWarning(ea.Exception, "Error with RabbitMQ consumer channel");
@@ -255,6 +306,7 @@ public sealed class RabbitMQEventBus(
                     exchange: ExchangeName,
                     type: "direct");
 
+                // 声明持久化队列
                 await _consumerChannel.QueueDeclareAsync(
                     queue: _queueName,
                     durable: true,
@@ -276,6 +328,7 @@ public sealed class RabbitMQEventBus(
                     autoAck: false,
                     consumer: consumer);
 
+                // 为所有已注册的事件类型绑定队列
                 foreach (var (eventName, _) in _subscriptionInfo.EventTypes)
                 {
                     await _consumerChannel.QueueBindAsync(
@@ -294,18 +347,26 @@ public sealed class RabbitMQEventBus(
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// 停止事件总线（当前实现为无操作）
+    /// </summary>
     public Task StopAsync(CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// 创建弹性管道，配置重试策略以应对暂时性故障
+    /// 参考：https://www.pollydocs.org/strategies/retry.html
+    /// </summary>
     private static ResiliencePipeline CreateResiliencePipeline(int retryCount)
     {
-        // See https://www.pollydocs.org/strategies/retry.html
         var retryOptions = new RetryStrategyOptions
         {
+            // 处理 BrokerUnreachableException 和 SocketException 两种异常
             ShouldHandle = new PredicateBuilder().Handle<BrokerUnreachableException>().Handle<SocketException>(),
             MaxRetryAttempts = retryCount,
+            // 指数退避策略：2^n 秒
             DelayGenerator = (context) => ValueTask.FromResult(GenerateDelay(context.AttemptNumber))
         };
 

@@ -4,12 +4,21 @@ using Pgvector;
 
 namespace eShop.Catalog.API.Infrastructure;
 
+/// <summary>
+/// 目录数据库种子数据填充类
+/// 负责从 catalog.json 文件读取初始数据并写入数据库，同时生成 AI 嵌入向量
+/// </summary>
 public partial class CatalogContextSeed(
     IWebHostEnvironment env,
     IOptions<CatalogOptions> settings,
     ICatalogAI catalogAI,
     ILogger<CatalogContextSeed> logger) : IDbSeeder<CatalogContext>
 {
+    /// <summary>
+    /// 执行数据库种子数据填充
+    /// 如果数据库中已存在商品数据则跳过，否则从 Setup/catalog.json 加载并初始化品牌、类型和商品信息
+    /// </summary>
+    /// <param name="context">目录数据库上下文</param>
     public async Task SeedAsync(CatalogContext context)
     {
         var useCustomizationData = settings.Value.UseCustomizationData;
