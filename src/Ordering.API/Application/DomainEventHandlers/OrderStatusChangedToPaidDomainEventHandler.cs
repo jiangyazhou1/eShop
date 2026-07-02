@@ -1,5 +1,9 @@
 ﻿namespace eShop.Ordering.API.Application.DomainEventHandlers;
 
+/// <summary>
+/// 订单状态变更为已支付领域事件处理器
+/// 当订单状态变更为已支付时，创建并保存"订单状态变更为已支付"的集成事件
+/// </summary>
 public class OrderStatusChangedToPaidDomainEventHandler : INotificationHandler<OrderStatusChangedToPaidDomainEvent>
 {
     private readonly IOrderRepository _orderRepository;
@@ -7,6 +11,9 @@ public class OrderStatusChangedToPaidDomainEventHandler : INotificationHandler<O
     private readonly IBuyerRepository _buyerRepository;
     private readonly IOrderingIntegrationEventService _orderingIntegrationEventService;
 
+    /// <summary>
+    /// 初始化 OrderStatusChangedToPaidDomainEventHandler 类的新实例
+    /// </summary>
     public OrderStatusChangedToPaidDomainEventHandler(
         IOrderRepository orderRepository,
         ILogger<OrderStatusChangedToPaidDomainEventHandler> logger,
@@ -19,6 +26,10 @@ public class OrderStatusChangedToPaidDomainEventHandler : INotificationHandler<O
         _orderingIntegrationEventService = orderingIntegrationEventService ?? throw new ArgumentNullException(nameof(orderingIntegrationEventService));
     }
 
+    /// <summary>
+    /// 处理订单状态变更为已支付领域事件
+    /// 记录订单状态变更日志，创建集成事件并保存
+    /// </summary>
     public async Task Handle(OrderStatusChangedToPaidDomainEvent domainEvent, CancellationToken cancellationToken)
     {
         OrderingApiTrace.LogOrderStatusUpdated(_logger, domainEvent.OrderId, OrderStatus.Paid);

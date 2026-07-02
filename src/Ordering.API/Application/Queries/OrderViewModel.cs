@@ -1,38 +1,63 @@
 ﻿namespace eShop.Ordering.API.Application.Queries;
 
-public record Orderitem
-{
-    public string ProductName { get; init; }
-    public int Units { get; init; }
-    public double UnitPrice { get; init; }
-    public string PictureUrl { get; init; }
-}
+/// <summary>
+/// 订单项视图模型
+/// </summary>
+/// <param name="ProductName">商品名称</param>
+/// <param name="Units">商品数量</param>
+/// <param name="UnitPrice">单价</param>
+/// <param name="PictureUrl">商品图片 URL</param>
+public record Orderitem(
+    string ProductName,
+    int Units,
+    double UnitPrice,
+    string PictureUrl);
 
-public record Order
-{
-    public int OrderNumber { get; init; }
-    public DateTime Date { get; init; }
-    public string Status { get; init; }
-    public string Description { get; init; }
-    public string Street { get; init; }
-    public string City { get; init; }
-    public string State { get; init; }
-    public string Zipcode { get; init; }
-    public string Country { get; init; }
-    public List<Orderitem> OrderItems { get; set; }
-    public decimal Total { get; set; }
-}
+/// <summary>
+/// 订单详细信息视图模型
+/// </summary>
+/// <param name="OrderNumber">订单编号</param>
+/// <param name="Date">订单日期</param>
+/// <param name="Status">订单状态</param>
+/// <param name="Description">订单描述</param>
+/// <param name="Street">街道地址</param>
+/// <param name="City">城市</param>
+/// <param name="State">州/省</param>
+/// <param name="Zipcode">邮政编码</param>
+/// <param name="Country">国家</param>
+/// <param name="OrderItems">订单项列表</param>
+/// <param name="Total">订单总金额</param>
+public record Order(
+    int OrderNumber,
+    DateTime Date,
+    string Status,
+    string Description,
+    string Street,
+    string City,
+    string State,
+    string Zipcode,
+    string Country,
+    List<Orderitem> OrderItems,
+    decimal Total);
 
-public record OrderSummary
-{
-    public int OrderNumber { get; init; }
-    public DateTime Date { get; init; }
-    public string Status { get; init; }
-    public double Total { get; init; }
-}
+/// <summary>
+/// 订单摘要视图模型
+/// </summary>
+/// <param name="OrderNumber">订单编号</param>
+/// <param name="Date">订单日期</param>
+/// <param name="Status">订单状态</param>
+/// <param name="Total">订单总金额</param>
+public record OrderSummary(
+    int OrderNumber,
+    DateTime Date,
+    string Status,
+    double Total);
 
-public record CardType
-{
-    public int Id { get; init; }
-    public string Name { get; init; }
-}
+/// <summary>
+/// 卡片类型视图模型
+/// </summary>
+/// <param name="Id">卡片类型 ID</param>
+/// <param name="Name">卡片类型名称</param>
+public record CardType(
+    int Id,
+    string Name);

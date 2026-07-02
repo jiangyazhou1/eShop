@@ -1,16 +1,19 @@
 ﻿namespace eShop.Ordering.API.Application.Commands;
 
 /// <summary>
-/// Provides a base implementation for handling duplicate request and ensuring idempotent updates, in the cases where
-/// a requestid sent by client is used to detect duplicate requests.
+/// 幂等命令处理器基类
+/// 通过请求 ID 检测重复请求，确保同一命令只执行一次
 /// </summary>
-/// <typeparam name="T">Type of the command handler that performs the operation if request is not duplicated</typeparam>
-/// <typeparam name="R">Return value of the inner command handler</typeparam>
+/// <typeparam name="T">实际命令类型</typeparam>
+/// <typeparam name="R">命令执行结果类型</typeparam>
 public abstract class IdentifiedCommandHandler<T, R> : IRequestHandler<IdentifiedCommand<T, R>, R>
     where T : IRequest<R>
 {
+    /// <summary>获取中介者实例</summary>
     private readonly IMediator _mediator;
+    /// <summary>获取请求管理器实例（用于幂等性检查）</summary>
     private readonly IRequestManager _requestManager;
+    /// <summary>获取日志记录器</summary>
     private readonly ILogger<IdentifiedCommandHandler<T, R>> _logger;
 
     public IdentifiedCommandHandler(
@@ -25,19 +28,18 @@ public abstract class IdentifiedCommandHandler<T, R> : IRequestHandler<Identifie
     }
 
     /// <summary>
-    /// Creates the result value to return if a previous request was found
+    /// 当检测到重复请求时创建返回值
+    /// 不同命令可以自定义重复请求时的行为
     /// </summary>
-    /// <returns></returns>
     protected abstract R CreateResultForDuplicateRequest();
 
     /// <summary>
-    /// This method handles the command. It just ensures that no other request exists with the same ID, and if this is the case
-    /// just enqueues the original inner command.
+    /// 处理带唯一标识的命令
+    /// 流程：检查请求是否已存在 -> 若不存在则创建请求记录 -> 执行实际命令
     /// </summary>
-    /// <param name="message">IdentifiedCommand which contains both original command & request ID</param>
-    /// <returns>Return value of inner command or default value if request same ID was found</returns>
     public async Task<R> Handle(IdentifiedCommand<T, R> message, CancellationToken cancellationToken)
     {
+        // 检查请求 ID 是否已存在（幂等性检查）
         var alreadyExists = await _requestManager.ExistAsync(message.Id);
         if (alreadyExists)
         {
@@ -45,6 +47,7 @@ public abstract class IdentifiedCommandHandler<T, R> : IRequestHandler<Identifie
         }
         else
         {
+            // 创建请求记录，标记该请求已处理
             await _requestManager.CreateRequestForCommandAsync<T>(message.Id);
             try
             {
@@ -53,6 +56,7 @@ public abstract class IdentifiedCommandHandler<T, R> : IRequestHandler<Identifie
                 var idProperty = string.Empty;
                 var commandId = string.Empty;
 
+                // 提取命令的关键标识属性用于日志记录
                 switch (command)
                 {
                     case CreateOrderCommand createOrderCommand:
@@ -83,7 +87,7 @@ public abstract class IdentifiedCommandHandler<T, R> : IRequestHandler<Identifie
                     commandId,
                     command);
 
-                // Send the embedded business command to mediator so it runs its related CommandHandler 
+                // 将实际命令发送到中介者执行对应的命令处理器
                 var result = await _mediator.Send(command, cancellationToken);
 
                 _logger.LogInformation(

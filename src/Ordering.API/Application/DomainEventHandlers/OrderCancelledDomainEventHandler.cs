@@ -1,5 +1,9 @@
 ﻿namespace eShop.Ordering.API.Application.DomainEventHandlers;
 
+/// <summary>
+/// 订单取消领域事件处理器
+/// 当订单被取消时，创建并保存"订单状态变更为已取消"的集成事件
+/// </summary>
 public partial class OrderCancelledDomainEventHandler
                 : INotificationHandler<OrderCancelledDomainEvent>
 {
@@ -8,6 +12,9 @@ public partial class OrderCancelledDomainEventHandler
     private readonly ILogger _logger;
     private readonly IOrderingIntegrationEventService _orderingIntegrationEventService;
 
+    /// <summary>
+    /// 初始化 OrderCancelledDomainEventHandler 类的新实例
+    /// </summary>
     public OrderCancelledDomainEventHandler(
         IOrderRepository orderRepository,
         ILogger<OrderCancelledDomainEventHandler> logger,
@@ -20,6 +27,10 @@ public partial class OrderCancelledDomainEventHandler
         _orderingIntegrationEventService = orderingIntegrationEventService;
     }
 
+    /// <summary>
+    /// 处理订单取消领域事件
+    /// 记录订单状态变更日志，创建集成事件并保存
+    /// </summary>
     public async Task Handle(OrderCancelledDomainEvent domainEvent, CancellationToken cancellationToken)
     {
         OrderingApiTrace.LogOrderStatusUpdated(_logger, domainEvent.Order.Id, OrderStatus.Cancelled);
